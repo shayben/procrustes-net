@@ -41,7 +41,10 @@ import sys
 import tarfile
 
 from six.moves import urllib
+import numpy as np
 import tensorflow as tf
+from tensorflow.python.framework import ops
+from  scipy import linalg as la
 
 import cifar10_input
 
@@ -185,7 +188,7 @@ def inputs(eval_data):
   return images, labels
 
 
-def inference(images):
+def inference(images, is_procrustes=False):
   """Build the CIFAR-10 model.
 
   Args:
@@ -208,7 +211,13 @@ def inference(images):
     conv = tf.nn.conv2d(images, kernel, [1, 1, 1, 1], padding='SAME')
     biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
     pre_activation = tf.nn.bias_add(conv, biases)
-    conv1 = tf.nn.relu(pre_activation, name=scope.name)
+    if is_procrustes:
+        # todo: this is the point were we need to implement our activation function
+        rotated_preactivation = tf_procrustes(pre_activation)
+        conv1 = tf.nn.relu(rotated_preactivation, name=scope.name)
+        print('not implemented')
+    else:
+        conv1 = tf.nn.relu(pre_activation, name=scope.name)
     _activation_summary(conv1)
 
   # pool1
@@ -397,3 +406,63 @@ def maybe_download_and_extract():
   extracted_dir_path = os.path.join(dest_directory, 'cifar-10-batches-bin')
   if not os.path.exists(extracted_dir_path):
     tarfile.open(filepath, 'r:gz').extractall(dest_directory)
+
+
+def procrustes(x):
+    la.orthogonal_procrustes(im0, im1)
+
+    r = x % 1
+    if r <= 0.5:
+        return r
+    else:
+        return 0
+
+
+def d_procrustes(x):
+    r = x % 1
+    if r <= 0.5:
+        return 1
+    else:
+        return 0
+
+
+def tf_d_procrustes(x,name=None):
+    with ops.op_scope([x], name, "d_procrustes") as name:
+        y = tf.py_func(np_d_procrustes_32,
+                        [x],
+                        [tf.float32],
+                        name=name,
+                        stateful=False)
+        return y[0]
+
+
+def procrustesgrad(op, grad):
+    x = op.inputs[0]
+
+    n_gr = tf_d_procrustes(x)
+    return grad * n_gr
+
+
+def py_func(func, inp, Tout, stateful=True, name=None, grad=None):
+    # Need to generate a unique name to avoid duplicates:
+    rnd_name = 'PyFuncGrad' + str(np.random.randint(0, 1E+8))
+    tf.RegisterGradient(rnd_name)(grad)  # see _MySquareGrad for grad example
+    g = tf.get_default_graph()
+    with g.gradient_override_map({"PyFunc": rnd_name}):
+        return tf.py_func(func, inp, Tout, stateful=stateful, name=name)
+
+
+def tf_procrustes(x, name=None):
+    with ops.op_scope([x], name, "procrustes") as name:
+        y = py_func(np_procrustes_32,
+                        [x],
+                        [tf.float32],
+                        name=name,
+                        grad=procrustesgrad)  # <-- here's the call to the gradient
+        return y[0]
+
+
+np_procrustes = np.vectorize(procrustes)
+np_d_procrustes = np.vectorize(d_procrustes)
+np_d_procrustes_32 = lambda x: np_d_procrustes(x).astype(np.float32)
+np_procrustes_32 = lambda x: np_procrustes(x).astype(np.float32)
