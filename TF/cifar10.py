@@ -44,7 +44,7 @@ from six.moves import urllib
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.framework import ops
-from  scipy import linalg as la
+from scipy import linalg as la
 
 import cifar10_input
 
@@ -409,8 +409,9 @@ def maybe_download_and_extract():
 
 
 def procrustes(x):
-    la.orthogonal_procrustes(im0, im1)
-
+    #W should be a global variable with weights of current layer.
+    #Note: how to support multiple layers?
+    #R = la.orthogonal_procrustes(x, W)[0]
     r = x % 1
     if r <= 0.5:
         return r
