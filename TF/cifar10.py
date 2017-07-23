@@ -39,6 +39,7 @@ import os
 import re
 import sys
 import tarfile
+import scipy
 
 from six.moves import urllib
 import numpy as np
@@ -188,6 +189,54 @@ def inputs(eval_data):
   return images, labels
 
 
+def procrustes_rotated(patches, kernel):
+    W = np.squeeze(kernel)
+    avgW = np.mean(W, axis=2)
+
+    def procrustes_rotate_sub(X):
+        # Average out color channel for procrustes rotation
+        tX = X.reshape([patches.shape[1], patches.shape[2], patches.shape[3]])
+        avgX = np.mean(tX, axis=2)
+        R = la.orthogonal_procrustes(avgX, avgW)
+        dupR = np.repeat(R[0], tX.shape[2]).reshape(tX.shape)
+        return np.dot(np.dot(tX.flatten(), dupR.flatten()), W.flatten())
+
+    XRW = np.apply_along_axis(procrustes_rotate_sub, 1, patches.reshape([patches.shape[0], -1]))
+    return XRW
+
+
+def procrustes_conv(input_data, conv_size, stride=(1, 1), padding='SAME', name=None):
+    kernel = _variable_with_weight_decay('weights',
+                                         shape=[conv_size[0], conv_size[1], conv_size[2], conv_size[3]],
+                                         stddev=5e-2,
+                                         wd=0.0)
+
+    ksizes = [1, conv_size[0], conv_size[1], 1]
+    strides = [1, stride[0], stride[1], 1]
+    # Get image patches
+    patches = tf.extract_image_patches(input_data, ksizes, strides, [1, ]*4, padding, name)
+    # Vectorize resulting tensor as list of patches
+    patches_shaped = tf.reshape(patches, [patches.shape[0].value * patches.shape[1].value * patches.shape[2].value,
+                                          conv_size[0], conv_size[1], conv_size[2]])
+    # Average out color channel for procrustes rotation
+    # patches_color_avg = tf.reduce_mean(patches_shaped, 3)
+    res_channels = []
+    # for each convolution filter
+    for k in range(conv_size[3]):
+        y = tf.py_func(procrustes_rotated,
+                       [patches_shaped, kernel[:, :, :, k]],
+                       Tout=tf.float32,
+                       stateful=False,
+                       name=name
+                       )
+        # y is now the procrustes rotated input patch's dot product with kernel
+        y_shaped = tf.reshape(y, [patches.shape[0].value, patches.shape[1].value,
+                                     patches.shape[2].value, 1])
+        res_channels.append(y_shaped)
+    output_tensor = tf.concat(res_channels, 3)
+    return output_tensor
+
+
 def inference(images, is_procrustes=False):
   """Build the CIFAR-10 model.
 
@@ -204,6 +253,12 @@ def inference(images, is_procrustes=False):
   #
   # conv1
   with tf.variable_scope('conv1') as scope:
+    conv = procrustes_conv(images, [5, 5, 3, 64], [1, 1, 1, 1], padding='SAME', name=scope.name)
+    biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
+    pre_activation = tf.nn.bias_add(conv, biases)
+    conv1 = tf.nn.relu(pre_activation, name=scope.name)
+
+    """
     kernel = _variable_with_weight_decay('weights',
                                          shape=[5, 5, 3, 64],
                                          stddev=5e-2,
@@ -218,6 +273,7 @@ def inference(images, is_procrustes=False):
         print('not implemented')
     else:
         conv1 = tf.nn.relu(pre_activation, name=scope.name)
+    """
     _activation_summary(conv1)
 
   # pool1
