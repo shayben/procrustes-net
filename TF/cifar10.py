@@ -206,6 +206,72 @@ def procrustes_rotated(patches, kernel, imshape):
     return XRW
 
 
+def matrix_symmetric(x):
+    return (x + tf.transpose(x, [0, 2, 1])) / 2
+
+
+def get_eigen_K(x, square=False):
+    """
+    Get K = 1 / (sigma_i - sigma_j) for i != j, 0 otherwise
+
+    Parameters
+    ----------
+    x : tf.Tensor with shape as [..., dim,]
+
+    Returns
+    -------
+
+    """
+    if square:
+        x = tf.square(x)
+    res = tf.expand_dims(x, 1) - tf.expand_dims(x, 2)
+    res += tf.eye(tf.shape(res)[1])
+    res = 1 / res
+    res -= tf.eye(tf.shape(res)[1])
+
+    # Keep the results clean
+    res = tf.where(tf.is_nan(res), tf.zeros_like(res), res)
+    res = tf.where(tf.is_inf(res), tf.zeros_like(res), res)
+    return res
+
+
+@tf.RegisterGradient('Svd')
+def gradient_svd(op, grad_s, grad_u, grad_v):
+    """
+    Define the gradient for SVD
+    References Ionescu, C., et al, Matrix Backpropagation for Deep Networks with Structured Layers
+    Parameters
+    ----------
+    op
+    grad_s
+    grad_u
+    grad_v
+    Returns
+    -------
+    """
+    s, u, v = op.outputs
+    v_t = tf.transpose(v, [0, 2, 1])
+
+    with tf.name_scope('K'):
+        K = get_eigen_K(s, True)
+    inner = matrix_symmetric(K * tf.matmul(v_t, grad_v))
+
+    # Create the shape accordingly.
+    u_shape = u.get_shape()[1].value
+    v_shape = v.get_shape()[1].value
+
+    # Recover the complete S matrices and its gradient
+    eye_mat = tf.eye(v_shape, u_shape)
+    realS = tf.matmul(tf.reshape(tf.matrix_diag(s), [-1, v_shape]), eye_mat)
+    realS = tf.transpose(tf.reshape(realS, [-1, v_shape, u_shape]), [0, 2, 1])
+
+    real_grad_S = tf.matmul(tf.reshape(tf.matrix_diag(grad_s), [-1, v_shape]), eye_mat)
+    real_grad_S = tf.transpose(tf.reshape(real_grad_S, [-1, v_shape, u_shape]), [0, 2, 1])
+
+    dxdz = tf.matmul(u, tf.matmul(2 * tf.matmul(realS, inner) + real_grad_S, v_t))
+    return tf.zeros(dxdz.shape)
+    #return dxdz
+
 def procrustes_conv(input_data, conv_size, stride=(1, 1), padding='SAME', name=None):
     kernel = _variable_with_weight_decay('weights',
                                          shape=[conv_size[0], conv_size[1], 1, conv_size[3]],
@@ -222,10 +288,16 @@ def procrustes_conv(input_data, conv_size, stride=(1, 1), padding='SAME', name=N
     # Average out color channel for procrustes rotation
     patches_color_avg = tf.reduce_mean(patches_shaped, 3)
     final_patch_shapes = tf.reshape(patches_color_avg, [patches.shape[0].value * patches.shape[1].value * patches.shape[2].value,
-                                          conv_size[0] * conv_size[1]])
+                                          conv_size[0], conv_size[1]])
     res_channels = []
     # for each convolution filter
     for k in range(conv_size[3]):
+        K = tf.squeeze(kernel[:, :, :, k])
+        muled = tf.multiply(final_patch_shapes, K)
+        svded = tf.svd(muled, full_matrices=True)
+        R = svded[2] * tf.transpose(svded[1], perm=[0, 2, 1])
+        y = tf.reduce_sum(tf.multiply(R, K), axis=(1, 2))
+        """
         y = tf.py_func(procrustes_rotated,
                        [final_patch_shapes, kernel[:, :, :, k], conv_size[0:2]],
                        Tout=tf.float32,
@@ -233,6 +305,7 @@ def procrustes_conv(input_data, conv_size, stride=(1, 1), padding='SAME', name=N
                        name=name
                        )
         # y is now the procrustes rotated input patch's dot product with kernel
+        """
         y_shaped = tf.reshape(y, [patches.shape[0].value, patches.shape[1].value,
                                      patches.shape[2].value, 1])
         res_channels.append(y_shaped)
