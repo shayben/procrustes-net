@@ -335,10 +335,6 @@ def inference(images, is_procrustes=False):
     with tf.variable_scope('conv1') as scope:
         if is_procrustes:
                 conv = procrustes_conv(images, [5, 5, 3, 64], [1, 1, 1, 1], padding='SAME', name=scope.name)
-                biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
-                pre_activation = tf.nn.bias_add(conv, biases)
-                conv1 = tf.nn.relu(pre_activation, name=scope.name)
-
         else:
             images = tf.reduce_mean(images, 3)
             images = tf.reshape(images, [images.shape[0].value, images.shape[1].value, images.shape[2].value, 1])
@@ -347,10 +343,10 @@ def inference(images, is_procrustes=False):
                                                  stddev=5e-2,
                                                  wd=0.0)
             conv = tf.nn.conv2d(images, kernel, [1, 1, 1, 1], padding='SAME')
-            biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
-            pre_activation = tf.nn.bias_add(conv, biases)
-            conv1 = tf.nn.relu(pre_activation, name=scope.name)
 
+        biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
+        pre_activation = tf.nn.bias_add(conv, biases)
+        conv1 = tf.nn.relu(pre_activation, name=scope.name)
         _activation_summary(conv1)
 
     # pool1
