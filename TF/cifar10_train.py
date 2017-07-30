@@ -45,16 +45,16 @@ import cifar10
 
 FLAGS = tf.app.flags.FLAGS
 
-tf.app.flags.DEFINE_string('train_dir', '/tmp/cifar10_train_procrustes',
+tf.app.flags.DEFINE_string('train_dir', '/tmp/cifar10_train_procrustes2',
                            """Directory where to write event logs """
                            """and checkpoint.""")
-tf.app.flags.DEFINE_integer('max_steps', 100000,
+tf.app.flags.DEFINE_integer('max_steps', 10000,
                             """Number of batches to run.""")
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
 tf.app.flags.DEFINE_integer('log_frequency', 10,
                             """How often to log results to the console.""")
-
+is_procrustes = True
 
 def train():
   """Train CIFAR-10 for a number of steps."""
@@ -69,7 +69,7 @@ def train():
 
     # Build a Graph that computes the logits predictions from the
     # inference model.
-    logits = cifar10.inference(images, is_procrustes=True)
+    logits = cifar10.inference(images, is_procrustes=is_procrustes)
 
     # Calculate loss.
     loss = cifar10.loss(logits, labels)

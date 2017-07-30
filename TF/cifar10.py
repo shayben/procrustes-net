@@ -199,7 +199,7 @@ def procrustes_rotated(patches, kernel, imshape):
         tX = X.reshape(imshape)
         R = la.orthogonal_procrustes(tX, W)
         dupR = R[0]
-        return np.tensordot(np.matmul(tX, dupR), W)
+        return np.tensordot(np.matmul(tX, dupR), W), dupR
 
     XRW = np.apply_along_axis(procrustes_rotate_sub, 1, patches)
     print('overall = {}'.format(time.time() - start))
@@ -288,31 +288,33 @@ def procrustes_conv(input_data, conv_size, stride=(1, 1), padding='SAME', name=N
                                           conv_size[0], conv_size[1], conv_size[2]])
     # Average out color channel for procrustes rotation
     patches_color_avg = tf.reduce_mean(patches_shaped, 3)
-    final_patch_shapes = tf.reshape(patches_color_avg,
+    X = tf.reshape(patches_color_avg,
                                     [patches.shape[0].value * patches.shape[1].value * patches.shape[2].value,
                                      conv_size[0], conv_size[1]])
     res_channels = []
+    rot_channels = []
     # for each convolution filter
     for k in range(conv_size[3]):
-        K = tf.squeeze(kernel[:, :, :, k])
-        muled = tf.multiply(final_patch_shapes, K)
-        svded = tf.svd(muled, full_matrices=True)
-        R = svded[2] * tf.transpose(svded[1], perm=[0, 2, 1])
-        y = tf.reduce_sum(tf.multiply(R, K), axis=(1, 2))
-        """
-        y = tf.py_func(procrustes_rotated,
-                       [final_patch_shapes, kernel[:, :, :, k], conv_size[0:2]],
-                       Tout=tf.float32,
-                       stateful=False,
-                       name=name
-                       )
-        # y is now the procrustes rotated input patch's dot product with kernel
-        """
+        W = tf.squeeze(kernel[:, :, :, k]) # is the kernel
+        M = tf.multiply(W, tf.transpose(X, perm=[0, 2, 1]))
+        sM = tf.svd(M, full_matrices=True)
+        R = sM[1] * tf.transpose(sM[2], perm=[0, 2, 1])
+        y = tf.reduce_sum(tf.multiply(tf.multiply(X, R), W), axis=(1, 2))
         y_shaped = tf.reshape(y, [patches.shape[0].value, patches.shape[1].value,
                                   patches.shape[2].value, 1])
         res_channels.append(y_shaped)
-    output_tensor = tf.concat(res_channels, 3)
-    return output_tensor
+        r_shaped = tf.reshape(R, [patches.shape[0].value, patches.shape[1].value,
+                                  patches.shape[2].value, R.shape[1].value, R.shape[2].value, 1])
+        rot_channels.append(r_shaped)
+    output_res = tf.concat(res_channels, 3)
+    output_rot = tf.concat(rot_channels, 5)
+    """
+    output_rot = tf.reshape(output_rot,
+                            [output_rot.shape[0].value, output_rot.shape[1].value, output_rot.shape[2].value,
+                             output_rot.shape[3].value * output_rot.shape[4].value * output_rot.shape[5].value])
+    output_tensor = tf.concat([output_res, output_rot], 3)
+    """
+    return output_res
 
 
 def inference(images, is_procrustes=False):
@@ -338,8 +340,10 @@ def inference(images, is_procrustes=False):
                 conv1 = tf.nn.relu(pre_activation, name=scope.name)
 
         else:
+            images = tf.reduce_mean(images, 3)
+            images = tf.reshape(images, [images.shape[0].value, images.shape[1].value, images.shape[2].value, 1])
             kernel = _variable_with_weight_decay('weights',
-                                                 shape=[5, 5, 3, 64],
+                                                 shape=[5, 5, 1, 64],
                                                  stddev=5e-2,
                                                  wd=0.0)
             conv = tf.nn.conv2d(images, kernel, [1, 1, 1, 1], padding='SAME')
