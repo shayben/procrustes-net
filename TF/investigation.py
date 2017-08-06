@@ -1,11 +1,12 @@
 import tensorflow as tf
 import matplotlib.pyplot as plt
+import numpy as np
 
 #meta_graph_file = r'c:\tmp\cifar10_train_procrustes\model.ckpt-81587.meta'
 #model_checkpoint_file = r'c:\tmp\cifar10_train_procrustes\model.ckpt-81587'
 
-meta_graph_file = r'c:\tmp\cifar10_train\model.ckpt-100000.meta'
-model_checkpoint_file = r'c:\tmp\cifar10_train\model.ckpt-100000'
+meta_graph_file = r'c:\tmp\cifar10_train_procrustes2\model.ckpt-10000.meta'
+model_checkpoint_file = r'c:\tmp\cifar10_train_procrustes2\model.ckpt-10000'
 
 with tf.Session() as sess:
     saver = tf.train.import_meta_graph(meta_graph_file)
@@ -14,7 +15,7 @@ with tf.Session() as sess:
     procrustes_layer = variables[1]
 
     for i in range(64):
-        kernel = procrustes_layer[:, :, :, i].eval()
+        kernel = np.squeeze(procrustes_layer[:, :, :, i].eval())
         plt.subplot(8, 8, i+1)
         plt.imshow(kernel, cmap=plt.cm.BuPu_r)
 
