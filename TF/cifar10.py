@@ -296,10 +296,11 @@ def procrustes_conv(input_data, conv_size, stride=(1, 1), padding='SAME', name=N
     # for each convolution filter
     for k in range(conv_size[3]):
         W = tf.squeeze(kernel[:, :, :, k])  # is the kernel
-        M = tf.matmul(W, tf.transpose(X, perm=[0, 2, 1]))
+        X_T = tf.transpose(X, perm=[0, 2, 1])
+        M = tf.map_fn(lambda x: tf.matmul(W, x), X_T)
         sM = tf.svd(M, full_matrices=True)
         R = tf.matmul(sM[1], tf.transpose(sM[2], perm=[0, 2, 1]))
-        y = tf.reduce_sum(tf.multiply(tf.matmul(X, R), W), axis=(1, 2))
+        y = tf.reduce_sum(tf.multiply(tf.matmul(R, X), W), axis=(1, 2))
         y_shaped = tf.reshape(y, [patches.shape[0].value, patches.shape[1].value,
                                   patches.shape[2].value, 1])
         res_channels.append(y_shaped)
