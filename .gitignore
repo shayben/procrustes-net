@@ -102,3 +102,4 @@ ENV/
 .idea/
 TF/MNIST_data/
 TF/Models/
+TF/Models_procrustes/

@@ -41,6 +41,7 @@ import sys
 import tarfile
 import scipy
 import time
+import cv2
 
 from six.moves import urllib
 import numpy as np
@@ -82,112 +83,112 @@ DATA_URL = 'http://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz'
 
 
 def _activation_summary(x):
-  """Helper to create summaries for activations.
-
-  Creates a summary that provides a histogram of activations.
-  Creates a summary that measures the sparsity of activations.
-
-  Args:
-    x: Tensor
-  Returns:
-    nothing
-  """
-  # Remove 'tower_[0-9]/' from the name in case this is a multi-GPU training
-  # session. This helps the clarity of presentation on tensorboard.
-  tensor_name = re.sub('%s_[0-9]*/' % TOWER_NAME, '', x.op.name)
-  tf.summary.histogram(tensor_name + '/activations', x)
-  tf.summary.scalar(tensor_name + '/sparsity',
-                                       tf.nn.zero_fraction(x))
+    """Helper to create summaries for activations.
+  
+    Creates a summary that provides a histogram of activations.
+    Creates a summary that measures the sparsity of activations.
+  
+    Args:
+      x: Tensor
+    Returns:
+      nothing
+    """
+    # Remove 'tower_[0-9]/' from the name in case this is a multi-GPU training
+    # session. This helps the clarity of presentation on tensorboard.
+    tensor_name = re.sub('%s_[0-9]*/' % TOWER_NAME, '', x.op.name)
+    tf.summary.histogram(tensor_name + '/activations', x)
+    tf.summary.scalar(tensor_name + '/sparsity',
+                      tf.nn.zero_fraction(x))
 
 
 def _variable_on_cpu(name, shape, initializer):
-  """Helper to create a Variable stored on CPU memory.
-
-  Args:
-    name: name of the variable
-    shape: list of ints
-    initializer: initializer for Variable
-
-  Returns:
-    Variable Tensor
-  """
-  with tf.device('/cpu:0'):
-    dtype = tf.float16 if FLAGS.use_fp16 else tf.float32
-    var = tf.get_variable(name, shape, initializer=initializer, dtype=dtype)
-  return var
+    """Helper to create a Variable stored on CPU memory.
+  
+    Args:
+      name: name of the variable
+      shape: list of ints
+      initializer: initializer for Variable
+  
+    Returns:
+      Variable Tensor
+    """
+    with tf.device('/cpu:0'):
+        dtype = tf.float16 if FLAGS.use_fp16 else tf.float32
+        var = tf.get_variable(name, shape, initializer=initializer, dtype=dtype)
+    return var
 
 
 def _variable_with_weight_decay(name, shape, stddev, wd):
-  """Helper to create an initialized Variable with weight decay.
-
-  Note that the Variable is initialized with a truncated normal distribution.
-  A weight decay is added only if one is specified.
-
-  Args:
-    name: name of the variable
-    shape: list of ints
-    stddev: standard deviation of a truncated Gaussian
-    wd: add L2Loss weight decay multiplied by this float. If None, weight
-        decay is not added for this Variable.
-
-  Returns:
-    Variable Tensor
-  """
-  dtype = tf.float16 if FLAGS.use_fp16 else tf.float32
-  var = _variable_on_cpu(
-      name,
-      shape,
-      tf.truncated_normal_initializer(stddev=stddev, dtype=dtype))
-  if wd is not None:
-    weight_decay = tf.multiply(tf.nn.l2_loss(var), wd, name='weight_loss')
-    tf.add_to_collection('losses', weight_decay)
-  return var
+    """Helper to create an initialized Variable with weight decay.
+  
+    Note that the Variable is initialized with a truncated normal distribution.
+    A weight decay is added only if one is specified.
+  
+    Args:
+      name: name of the variable
+      shape: list of ints
+      stddev: standard deviation of a truncated Gaussian
+      wd: add L2Loss weight decay multiplied by this float. If None, weight
+          decay is not added for this Variable.
+  
+    Returns:
+      Variable Tensor
+    """
+    dtype = tf.float16 if FLAGS.use_fp16 else tf.float32
+    var = _variable_on_cpu(
+        name,
+        shape,
+        tf.truncated_normal_initializer(stddev=stddev, dtype=dtype))
+    if wd is not None:
+        weight_decay = tf.multiply(tf.nn.l2_loss(var), wd, name='weight_loss')
+        tf.add_to_collection('losses', weight_decay)
+    return var
 
 
 def distorted_inputs():
-  """Construct distorted input for CIFAR training using the Reader ops.
-
-  Returns:
-    images: Images. 4D tensor of [batch_size, IMAGE_SIZE, IMAGE_SIZE, 3] size.
-    labels: Labels. 1D tensor of [batch_size] size.
-
-  Raises:
-    ValueError: If no data_dir
-  """
-  if not FLAGS.data_dir:
-    raise ValueError('Please supply a data_dir')
-  data_dir = os.path.join(FLAGS.data_dir, 'cifar-10-batches-bin')
-  images, labels = cifar10_input.distorted_inputs(data_dir=data_dir,
-                                                  batch_size=FLAGS.batch_size)
-  if FLAGS.use_fp16:
-    images = tf.cast(images, tf.float16)
-    labels = tf.cast(labels, tf.float16)
-  return images, labels
+    """Construct distorted input for CIFAR training using the Reader ops.
+  
+    Returns:
+      images: Images. 4D tensor of [batch_size, IMAGE_SIZE, IMAGE_SIZE, 3] size.
+      labels: Labels. 1D tensor of [batch_size] size.
+  
+    Raises:
+      ValueError: If no data_dir
+    """
+    if not FLAGS.data_dir:
+        raise ValueError('Please supply a data_dir')
+    data_dir = os.path.join(FLAGS.data_dir, 'cifar-10-batches-bin')
+    images, labels = cifar10_input.distorted_inputs(data_dir=data_dir,
+                                                    batch_size=FLAGS.batch_size)
+    if FLAGS.use_fp16:
+        images = tf.cast(images, tf.float16)
+        labels = tf.cast(labels, tf.float16)
+    return images, labels
 
 
 def inputs(eval_data):
-  """Construct input for CIFAR evaluation using the Reader ops.
-
-  Args:
-    eval_data: bool, indicating if one should use the train or eval data set.
-
-  Returns:
-    images: Images. 4D tensor of [batch_size, IMAGE_SIZE, IMAGE_SIZE, 3] size.
-    labels: Labels. 1D tensor of [batch_size] size.
-
-  Raises:
-    ValueError: If no data_dir
-  """
-  if not FLAGS.data_dir:
-    raise ValueError('Please supply a data_dir')
-  data_dir = os.path.join(FLAGS.data_dir, 'cifar-10-batches-bin')
-  images, labels = cifar10_input.inputs(eval_data=eval_data,
-                                        data_dir=data_dir,
-                                        batch_size=FLAGS.batch_size)
-  if FLAGS.use_fp16:
-    images = tf.cast(images, tf.float16)
-    labels = tf.cast(labels, tf.float16)
-  return images, labels
+    """Construct input for CIFAR evaluation using the Reader ops.
+  
+    Args:
+      eval_data: bool, indicating if one should use the train or eval data set.
+  
+    Returns:
+      images: Images. 4D tensor of [batch_size, IMAGE_SIZE, IMAGE_SIZE, 3] size.
+      labels: Labels. 1D tensor of [batch_size] size.
+  
+    Raises:
+      ValueError: If no data_dir
+    """
+    if not FLAGS.data_dir:
+        raise ValueError('Please supply a data_dir')
+    data_dir = os.path.join(FLAGS.data_dir, 'cifar-10-batches-bin')
+    images, labels = cifar10_input.inputs(eval_data=eval_data,
+                                          data_dir=data_dir,
+                                          batch_size=FLAGS.batch_size)
+    if FLAGS.use_fp16:
+        images = tf.cast(images, tf.float16)
+        labels = tf.cast(labels, tf.float16)
+    return images, labels
 
 
 def procrustes_rotated(patches, kernel, imshape):
@@ -222,7 +223,7 @@ def procrustes_conv(input_data, conv_size, stride=(1, 1), padding='SAME', name=N
     # Average out color channel for procrustes rotation
     patches_color_avg = tf.reduce_mean(patches_shaped, 3)
     final_patch_shapes = tf.reshape(patches_color_avg, [patches.shape[0].value * patches.shape[1].value * patches.shape[2].value,
-                                          conv_size[0] * conv_size[1]])
+                                                        conv_size[0] * conv_size[1]])
     res_channels = []
     # for each convolution filter
     for k in range(conv_size[3]):
@@ -234,237 +235,321 @@ def procrustes_conv(input_data, conv_size, stride=(1, 1), padding='SAME', name=N
                        )
         # y is now the procrustes rotated input patch's dot product with kernel
         y_shaped = tf.reshape(y, [patches.shape[0].value, patches.shape[1].value,
-                                     patches.shape[2].value, 1])
+                                  patches.shape[2].value, 1])
         res_channels.append(y_shaped)
     output_tensor = tf.concat(res_channels, 3)
     return output_tensor
 
 
+def my_alignment(input, image_shape):
+
+    input_images = input[0:input.shape[0] - 1]
+    w_image = input[input.shape[0] - 1]
+    imgs1 = np.array(input_images, dtype=np.float32)
+    img2 = np.array(w_image, dtype=np.float32)
+    sz = imgs1[0].shape
+    number_of_iterations = 50;
+    termination_eps = 0.001;
+    warp_mode = cv2.MOTION_EUCLIDEAN
+
+    transformedImages = []
+    for i in range(0, len(input_images)):
+        # Define 2x3 or 3x3 matrices and initialize the matrix to identity
+        if warp_mode == cv2.MOTION_HOMOGRAPHY:
+            warp_matrix = np.eye(3, 3, dtype=np.float32)
+        else:
+            warp_matrix = np.eye(2, 3, dtype=np.float32)
+
+        # Define termination criteria
+        criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, number_of_iterations, termination_eps)
+
+        try:
+            im1_gray = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+            im2_gray = cv2.cvtColor(imgs1[i], cv2.COLOR_BGR2GRAY)
+            # Run the ECC algorithm. The results are stored in warp_matrix.
+            (cc, warp_matrix) = cv2.findTransformECC(im1_gray, im2_gray, warp_matrix, warp_mode, criteria)
+
+            if warp_mode == cv2.MOTION_HOMOGRAPHY:
+                # Use warpPerspective for Homography
+                im1_aligned = cv2.warpPerspective(imgs1[i], warp_matrix, (sz[1], sz[0]),
+                                                  flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+            else:
+                # Use warpAffine for Translation, Euclidean and Affine
+                im1_aligned = cv2.warpAffine(imgs1[i], warp_matrix, (sz[1], sz[0]),
+                                             flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+
+                # im1_aligned = cv2.resize(im1_aligned, (org_shape[1],org_shape[0]), interpolation=cv2.INTER_CUBIC)
+                # print("Done")
+        except cv2.error:
+            im1_aligned = imgs1[i]
+            # im1_aligned = cv2.resize(im1_aligned, (org_shape[1], org_shape[0]), interpolation=cv2.INTER_CUBIC)
+            # print("error while trying to find alignment")
+
+        transformedImages.append(im1_aligned)
+        # Show final results
+        # cv2.imshow("Image 1", imgs1[i])
+        # cv2.imshow("Image 2", img2)
+        # cv2.imshow("Aligned Image 2", im2_aligned)
+        # cv2.waitKey(0)
+    transformedImages = np.reshape(transformedImages, [-1] + image_shape)
+    # print(transformedImages.shape)
+    # return transformedImages.astype(np.float32)
+    return transformedImages
+    # return input[0:input.shape[0]-1]
+
+
+def my_get_wieghts(input_data, imshape, name=None):
+    kernel = tf.Variable(tf.zeros([10, np.prod(imshape)]), name=name)
+    input_shaped = tf.reshape(input_data, [-1] + imshape)
+
+    res = []
+    def my_alignment_w(input):
+        return my_alignment(input, imshape)
+
+    for k in range(kernel.shape[0].value):
+        W = tf.reshape(kernel[k], imshape)
+        Rx = tf.py_func(my_alignment_w, [tf.concat([input_shaped, tf.reshape(W, [-1] + imshape)], 0)], tf.float32)
+        Rx = tf.stop_gradient(Rx)
+        Rx = tf.reshape(Rx, [-1, np.prod(imshape)])
+        W = tf.reshape(W, [np.prod(imshape), 1])
+        Y = tf.matmul(Rx, W)
+        res.append(Y)
+
+    return tf.reshape(tf.transpose(res), [-1, 10])
+
+
+
 def inference(images, is_procrustes=False):
-  """Build the CIFAR-10 model.
-
-  Args:
-    images: Images returned from distorted_inputs() or inputs().
-
-  Returns:
-    Logits.
-  """
-  # We instantiate all variables using tf.get_variable() instead of
-  # tf.Variable() in order to share variables across multiple GPU training runs.
-  # If we only ran this model on a single GPU, we could simplify this function
-  # by replacing all instances of tf.get_variable() with tf.Variable().
-  #
-  # conv1
-  with tf.variable_scope('conv1') as scope:
-    conv = procrustes_conv(images, [5, 5, 3, 64], [1, 1, 1, 1], padding='SAME', name=scope.name)
-    biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
-    pre_activation = tf.nn.bias_add(conv, biases)
-    conv1 = tf.nn.relu(pre_activation, name=scope.name)
-
+    """Build the CIFAR-10 model.
+  
+    Args:
+      images: Images returned from distorted_inputs() or inputs().
+  
+    Returns:
+      Logits.
     """
-    kernel = _variable_with_weight_decay('weights',
-                                         shape=[5, 5, 3, 64],
-                                         stddev=5e-2,
-                                         wd=0.0)
-    conv = tf.nn.conv2d(images, kernel, [1, 1, 1, 1], padding='SAME')
-    biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
-    pre_activation = tf.nn.bias_add(conv, biases)
+    # We instantiate all variables using tf.get_variable() instead of
+    # tf.Variable() in order to share variables across multiple GPU training runs.
+    # If we only ran this model on a single GPU, we could simplify this function
+    # by replacing all instances of tf.get_variable() with tf.Variable().
+    #
+    input_shape = [24, 24, 3]
     if is_procrustes:
-        # todo: this is the point were we need to implement our activation function
-        rotated_preactivation = tf_procrustes(pre_activation)
-        conv1 = tf.nn.relu(rotated_preactivation, name=scope.name)
-        print('not implemented')
-    else:
+        Wx = my_get_wieghts(images, input_shape, name="proc_wieghts")
+        b = tf.Variable(tf.zeros([10]))
+        y = Wx + b
+        return y
+    # conv1
+    with tf.variable_scope('conv1') as scope:
+        conv = procrustes_conv(images, [5, 5, 3, 64], [1, 1, 1, 1], padding='SAME', name=scope.name)
+        biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
+        pre_activation = tf.nn.bias_add(conv, biases)
         conv1 = tf.nn.relu(pre_activation, name=scope.name)
-    """
-    _activation_summary(conv1)
 
-  # pool1
-  pool1 = tf.nn.max_pool(conv1, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
-                         padding='SAME', name='pool1')
-  # norm1
-  norm1 = tf.nn.lrn(pool1, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
-                    name='norm1')
+        """
+        kernel = _variable_with_weight_decay('weights',
+                                             shape=[5, 5, 3, 64],
+                                             stddev=5e-2,
+                                             wd=0.0)
+        conv = tf.nn.conv2d(images, kernel, [1, 1, 1, 1], padding='SAME')
+        biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
+        pre_activation = tf.nn.bias_add(conv, biases)
+        if is_procrustes:
+            # todo: this is the point were we need to implement our activation function
+            rotated_preactivation = tf_procrustes(pre_activation)
+            conv1 = tf.nn.relu(rotated_preactivation, name=scope.name)
+            print('not implemented')
+        else:
+            conv1 = tf.nn.relu(pre_activation, name=scope.name)
+        """
+        _activation_summary(conv1)
 
-  # conv2
-  with tf.variable_scope('conv2') as scope:
-    kernel = _variable_with_weight_decay('weights',
-                                         shape=[5, 5, 64, 64],
-                                         stddev=5e-2,
-                                         wd=0.0)
-    conv = tf.nn.conv2d(norm1, kernel, [1, 1, 1, 1], padding='SAME')
-    biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.1))
-    pre_activation = tf.nn.bias_add(conv, biases)
-    conv2 = tf.nn.relu(pre_activation, name=scope.name)
-    _activation_summary(conv2)
+    # pool1
+    pool1 = tf.nn.max_pool(conv1, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
+                           padding='SAME', name='pool1')
+    # norm1
+    norm1 = tf.nn.lrn(pool1, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
+                      name='norm1')
 
-  # norm2
-  norm2 = tf.nn.lrn(conv2, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
-                    name='norm2')
-  # pool2
-  pool2 = tf.nn.max_pool(norm2, ksize=[1, 3, 3, 1],
-                         strides=[1, 2, 2, 1], padding='SAME', name='pool2')
+    # conv2
+    with tf.variable_scope('conv2') as scope:
+        kernel = _variable_with_weight_decay('weights',
+                                             shape=[5, 5, 64, 64],
+                                             stddev=5e-2,
+                                             wd=0.0)
+        conv = tf.nn.conv2d(norm1, kernel, [1, 1, 1, 1], padding='SAME')
+        biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.1))
+        pre_activation = tf.nn.bias_add(conv, biases)
+        conv2 = tf.nn.relu(pre_activation, name=scope.name)
+        _activation_summary(conv2)
 
-  # local3
-  with tf.variable_scope('local3') as scope:
-    # Move everything into depth so we can perform a single matrix multiply.
-    reshape = tf.reshape(pool2, [FLAGS.batch_size, -1])
-    dim = reshape.get_shape()[1].value
-    weights = _variable_with_weight_decay('weights', shape=[dim, 384],
-                                          stddev=0.04, wd=0.004)
-    biases = _variable_on_cpu('biases', [384], tf.constant_initializer(0.1))
-    local3 = tf.nn.relu(tf.matmul(reshape, weights) + biases, name=scope.name)
-    _activation_summary(local3)
+    # norm2
+    norm2 = tf.nn.lrn(conv2, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
+                      name='norm2')
+    # pool2
+    pool2 = tf.nn.max_pool(norm2, ksize=[1, 3, 3, 1],
+                           strides=[1, 2, 2, 1], padding='SAME', name='pool2')
 
-  # local4
-  with tf.variable_scope('local4') as scope:
-    weights = _variable_with_weight_decay('weights', shape=[384, 192],
-                                          stddev=0.04, wd=0.004)
-    biases = _variable_on_cpu('biases', [192], tf.constant_initializer(0.1))
-    local4 = tf.nn.relu(tf.matmul(local3, weights) + biases, name=scope.name)
-    _activation_summary(local4)
+    # local3
+    with tf.variable_scope('local3') as scope:
+        # Move everything into depth so we can perform a single matrix multiply.
+        reshape = tf.reshape(pool2, [FLAGS.batch_size, -1])
+        dim = reshape.get_shape()[1].value
+        weights = _variable_with_weight_decay('weights', shape=[dim, 384],
+                                              stddev=0.04, wd=0.004)
+        biases = _variable_on_cpu('biases', [384], tf.constant_initializer(0.1))
+        local3 = tf.nn.relu(tf.matmul(reshape, weights) + biases, name=scope.name)
+        _activation_summary(local3)
 
-  # linear layer(WX + b),
-  # We don't apply softmax here because
-  # tf.nn.sparse_softmax_cross_entropy_with_logits accepts the unscaled logits
-  # and performs the softmax internally for efficiency.
-  with tf.variable_scope('softmax_linear') as scope:
-    weights = _variable_with_weight_decay('weights', [192, NUM_CLASSES],
-                                          stddev=1/192.0, wd=0.0)
-    biases = _variable_on_cpu('biases', [NUM_CLASSES],
-                              tf.constant_initializer(0.0))
-    softmax_linear = tf.add(tf.matmul(local4, weights), biases, name=scope.name)
-    _activation_summary(softmax_linear)
+    # local4
+    with tf.variable_scope('local4') as scope:
+        weights = _variable_with_weight_decay('weights', shape=[384, 192],
+                                              stddev=0.04, wd=0.004)
+        biases = _variable_on_cpu('biases', [192], tf.constant_initializer(0.1))
+        local4 = tf.nn.relu(tf.matmul(local3, weights) + biases, name=scope.name)
+        _activation_summary(local4)
 
-  return softmax_linear
+    # linear layer(WX + b),
+    # We don't apply softmax here because
+    # tf.nn.sparse_softmax_cross_entropy_with_logits accepts the unscaled logits
+    # and performs the softmax internally for efficiency.
+    with tf.variable_scope('softmax_linear') as scope:
+        weights = _variable_with_weight_decay('weights', [192, NUM_CLASSES],
+                                              stddev=1/192.0, wd=0.0)
+        biases = _variable_on_cpu('biases', [NUM_CLASSES],
+                                  tf.constant_initializer(0.0))
+        softmax_linear = tf.add(tf.matmul(local4, weights), biases, name=scope.name)
+        _activation_summary(softmax_linear)
+
+    return softmax_linear
 
 
 def loss(logits, labels):
-  """Add L2Loss to all the trainable variables.
+    """Add L2Loss to all the trainable variables.
+  
+    Add summary for "Loss" and "Loss/avg".
+    Args:
+      logits: Logits from inference().
+      labels: Labels from distorted_inputs or inputs(). 1-D tensor
+              of shape [batch_size]
+  
+    Returns:
+      Loss tensor of type float.
+    """
+    # Calculate the average cross entropy loss across the batch.
+    labels = tf.cast(labels, tf.int64)
+    cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+        labels=labels, logits=logits, name='cross_entropy_per_example')
+    cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
+    tf.add_to_collection('losses', cross_entropy_mean)
 
-  Add summary for "Loss" and "Loss/avg".
-  Args:
-    logits: Logits from inference().
-    labels: Labels from distorted_inputs or inputs(). 1-D tensor
-            of shape [batch_size]
-
-  Returns:
-    Loss tensor of type float.
-  """
-  # Calculate the average cross entropy loss across the batch.
-  labels = tf.cast(labels, tf.int64)
-  cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-      labels=labels, logits=logits, name='cross_entropy_per_example')
-  cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
-  tf.add_to_collection('losses', cross_entropy_mean)
-
-  # The total loss is defined as the cross entropy loss plus all of the weight
-  # decay terms (L2 loss).
-  return tf.add_n(tf.get_collection('losses'), name='total_loss')
+    # The total loss is defined as the cross entropy loss plus all of the weight
+    # decay terms (L2 loss).
+    return tf.add_n(tf.get_collection('losses'), name='total_loss')
 
 
 def _add_loss_summaries(total_loss):
-  """Add summaries for losses in CIFAR-10 model.
+    """Add summaries for losses in CIFAR-10 model.
+  
+    Generates moving average for all losses and associated summaries for
+    visualizing the performance of the network.
+  
+    Args:
+      total_loss: Total loss from loss().
+    Returns:
+      loss_averages_op: op for generating moving averages of losses.
+    """
+    # Compute the moving average of all individual losses and the total loss.
+    loss_averages = tf.train.ExponentialMovingAverage(0.9, name='avg')
+    losses = tf.get_collection('losses')
+    loss_averages_op = loss_averages.apply(losses + [total_loss])
 
-  Generates moving average for all losses and associated summaries for
-  visualizing the performance of the network.
+    # Attach a scalar summary to all individual losses and the total loss; do the
+    # same for the averaged version of the losses.
+    for l in losses + [total_loss]:
+        # Name each loss as '(raw)' and name the moving average version of the loss
+        # as the original loss name.
+        tf.summary.scalar(l.op.name + ' (raw)', l)
+        tf.summary.scalar(l.op.name, loss_averages.average(l))
 
-  Args:
-    total_loss: Total loss from loss().
-  Returns:
-    loss_averages_op: op for generating moving averages of losses.
-  """
-  # Compute the moving average of all individual losses and the total loss.
-  loss_averages = tf.train.ExponentialMovingAverage(0.9, name='avg')
-  losses = tf.get_collection('losses')
-  loss_averages_op = loss_averages.apply(losses + [total_loss])
-
-  # Attach a scalar summary to all individual losses and the total loss; do the
-  # same for the averaged version of the losses.
-  for l in losses + [total_loss]:
-    # Name each loss as '(raw)' and name the moving average version of the loss
-    # as the original loss name.
-    tf.summary.scalar(l.op.name + ' (raw)', l)
-    tf.summary.scalar(l.op.name, loss_averages.average(l))
-
-  return loss_averages_op
+    return loss_averages_op
 
 
 def train(total_loss, global_step):
-  """Train CIFAR-10 model.
+    """Train CIFAR-10 model.
+  
+    Create an optimizer and apply to all trainable variables. Add moving
+    average for all trainable variables.
+  
+    Args:
+      total_loss: Total loss from loss().
+      global_step: Integer Variable counting the number of training steps
+        processed.
+    Returns:
+      train_op: op for training.
+    """
+    # Variables that affect learning rate.
+    num_batches_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN / FLAGS.batch_size
+    decay_steps = int(num_batches_per_epoch * NUM_EPOCHS_PER_DECAY)
 
-  Create an optimizer and apply to all trainable variables. Add moving
-  average for all trainable variables.
+    # Decay the learning rate exponentially based on the number of steps.
+    lr = tf.train.exponential_decay(INITIAL_LEARNING_RATE,
+                                    global_step,
+                                    decay_steps,
+                                    LEARNING_RATE_DECAY_FACTOR,
+                                    staircase=True)
+    tf.summary.scalar('learning_rate', lr)
 
-  Args:
-    total_loss: Total loss from loss().
-    global_step: Integer Variable counting the number of training steps
-      processed.
-  Returns:
-    train_op: op for training.
-  """
-  # Variables that affect learning rate.
-  num_batches_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN / FLAGS.batch_size
-  decay_steps = int(num_batches_per_epoch * NUM_EPOCHS_PER_DECAY)
+    # Generate moving averages of all losses and associated summaries.
+    loss_averages_op = _add_loss_summaries(total_loss)
 
-  # Decay the learning rate exponentially based on the number of steps.
-  lr = tf.train.exponential_decay(INITIAL_LEARNING_RATE,
-                                  global_step,
-                                  decay_steps,
-                                  LEARNING_RATE_DECAY_FACTOR,
-                                  staircase=True)
-  tf.summary.scalar('learning_rate', lr)
+    # Compute gradients.
+    with tf.control_dependencies([loss_averages_op]):
+        opt = tf.train.GradientDescentOptimizer(lr)
+        grads = opt.compute_gradients(total_loss)
 
-  # Generate moving averages of all losses and associated summaries.
-  loss_averages_op = _add_loss_summaries(total_loss)
+    # Apply gradients.
+    apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
 
-  # Compute gradients.
-  with tf.control_dependencies([loss_averages_op]):
-    opt = tf.train.GradientDescentOptimizer(lr)
-    grads = opt.compute_gradients(total_loss)
+    # Add histograms for trainable variables.
+    for var in tf.trainable_variables():
+        tf.summary.histogram(var.op.name, var)
 
-  # Apply gradients.
-  apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
+    # Add histograms for gradients.
+    for grad, var in grads:
+        if grad is not None:
+            tf.summary.histogram(var.op.name + '/gradients', grad)
 
-  # Add histograms for trainable variables.
-  for var in tf.trainable_variables():
-    tf.summary.histogram(var.op.name, var)
+    # Track the moving averages of all trainable variables.
+    variable_averages = tf.train.ExponentialMovingAverage(
+        MOVING_AVERAGE_DECAY, global_step)
+    variables_averages_op = variable_averages.apply(tf.trainable_variables())
 
-  # Add histograms for gradients.
-  for grad, var in grads:
-    if grad is not None:
-      tf.summary.histogram(var.op.name + '/gradients', grad)
+    with tf.control_dependencies([apply_gradient_op, variables_averages_op]):
+        train_op = tf.no_op(name='train')
 
-  # Track the moving averages of all trainable variables.
-  variable_averages = tf.train.ExponentialMovingAverage(
-      MOVING_AVERAGE_DECAY, global_step)
-  variables_averages_op = variable_averages.apply(tf.trainable_variables())
-
-  with tf.control_dependencies([apply_gradient_op, variables_averages_op]):
-    train_op = tf.no_op(name='train')
-
-  return train_op
+    return train_op
 
 
 def maybe_download_and_extract():
-  """Download and extract the tarball from Alex's website."""
-  dest_directory = FLAGS.data_dir
-  if not os.path.exists(dest_directory):
-    os.makedirs(dest_directory)
-  filename = DATA_URL.split('/')[-1]
-  filepath = os.path.join(dest_directory, filename)
-  if not os.path.exists(filepath):
-    def _progress(count, block_size, total_size):
-      sys.stdout.write('\r>> Downloading %s %.1f%%' % (filename,
-          float(count * block_size) / float(total_size) * 100.0))
-      sys.stdout.flush()
-    filepath, _ = urllib.request.urlretrieve(DATA_URL, filepath, _progress)
-    print()
-    statinfo = os.stat(filepath)
-    print('Successfully downloaded', filename, statinfo.st_size, 'bytes.')
-  extracted_dir_path = os.path.join(dest_directory, 'cifar-10-batches-bin')
-  if not os.path.exists(extracted_dir_path):
-    tarfile.open(filepath, 'r:gz').extractall(dest_directory)
+    """Download and extract the tarball from Alex's website."""
+    dest_directory = FLAGS.data_dir
+    if not os.path.exists(dest_directory):
+        os.makedirs(dest_directory)
+    filename = DATA_URL.split('/')[-1]
+    filepath = os.path.join(dest_directory, filename)
+    if not os.path.exists(filepath):
+        def _progress(count, block_size, total_size):
+            sys.stdout.write('\r>> Downloading %s %.1f%%' % (filename,
+                                                             float(count * block_size) / float(total_size) * 100.0))
+            sys.stdout.flush()
+        filepath, _ = urllib.request.urlretrieve(DATA_URL, filepath, _progress)
+        print()
+        statinfo = os.stat(filepath)
+        print('Successfully downloaded', filename, statinfo.st_size, 'bytes.')
+    extracted_dir_path = os.path.join(dest_directory, 'cifar-10-batches-bin')
+    if not os.path.exists(extracted_dir_path):
+        tarfile.open(filepath, 'r:gz').extractall(dest_directory)
 
 
 def procrustes(x):
@@ -489,10 +574,10 @@ def d_procrustes(x):
 def tf_d_procrustes(x,name=None):
     with ops.op_scope([x], name, "d_procrustes") as name:
         y = tf.py_func(np_d_procrustes_32,
-                        [x],
-                        [tf.float32],
-                        name=name,
-                        stateful=False)
+                       [x],
+                       [tf.float32],
+                       name=name,
+                       stateful=False)
         return y[0]
 
 
@@ -515,10 +600,10 @@ def py_func(func, inp, Tout, stateful=True, name=None, grad=None):
 def tf_procrustes(x, name=None):
     with ops.op_scope([x], name, "procrustes") as name:
         y = py_func(np_procrustes_32,
-                        [x],
-                        [tf.float32],
-                        name=name,
-                        grad=procrustesgrad)  # <-- here's the call to the gradient
+                    [x],
+                    [tf.float32],
+                    name=name,
+                    grad=procrustesgrad)  # <-- here's the call to the gradient
         return y[0]
 
 

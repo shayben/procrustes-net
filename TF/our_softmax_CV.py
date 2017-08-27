@@ -27,6 +27,7 @@ import sys, os
 import numpy as np
 import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
+from tensorflow.python.saved_model import *
 
 FLAGS = None
 
@@ -157,7 +158,9 @@ def main(_):
     # Create the model
     x = tf.placeholder(tf.float32, [None, 784])
 
-    Wx = my_get_wieghts(x, name="proc_wieghts")
+    #Wx = my_get_wieghts(x, name="proc_wieghts")
+    W = tf.Variable(tf.zeros([784, 10]))
+    Wx = tf.matmul(x, W)
     b = tf.Variable(tf.zeros([10]))
     y = Wx + b
 
@@ -182,11 +185,14 @@ def main(_):
         correct_prediction = tf.cast(correct_prediction, tf.float32)
     accuracy = tf.reduce_mean(correct_prediction)
 
+    #builder = tf.saved_model_builder.SavedModelBuilder('Models\\Builder')
+    saver = tf.train.Saver(max_to_keep=10)
+
     sess = tf.InteractiveSession()
     tf.global_variables_initializer().run()
-    saver = tf.train.Saver()
+
     # Train
-    for i in range(1000):
+    for  i in range(1000):
         if i == 50:
             global on
             on = 1
